@@ -21,7 +21,8 @@ const initializeFirebase = async () => {
       console.log('Successfully loaded service account key');
       
       admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount)
+        credential: admin.credential.cert(serviceAccount),
+        projectId: 'todoreact-77fbe' // Explicitly set the project ID
       });
     } catch (error) {
       console.error('Error loading service account key:', error);

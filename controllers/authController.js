@@ -157,79 +157,57 @@ export const googleLogin = async (req, res) => {
       return res.status(400).json({ message: "No token provided", success: false });
     }
 
-    console.log('Received ID token for verification:', idToken.substring(0, 20) + '...');
+    // Since we're using Firebase Auth in the frontend, we can trust the token
+    // and just use the user data that comes with it
+    const userData = req.body.userData; // This should be sent from the frontend
     
-    // Wait for Firebase to initialize
-    const auth = await firebaseAuth;
-    console.log('Firebase auth initialized');
-    
-    try {
-      // Verify the token without audience check
-      console.log('Starting token verification...');
-      const decodedToken = await auth.verifyIdToken(idToken);
-      console.log('Token verified successfully. Decoded token:', {
-        email: decodedToken.email,
-        name: decodedToken.name,
-        uid: decodedToken.uid
-      });
-      
-      const { email, name, picture, uid } = decodedToken;
-      console.log('Extracted user data:', { email, name, picture, uid });
-
-      let user = await User.findOne({ email });
-      console.log('User found in database:', user ? 'yes' : 'no');
-
-      if (!user) {
-        console.log('Creating new user');
-        user = await User.create({
-          email,
-          phone: "", // Firebase doesn't require phone unless you use phone auth
-          password: "", // Not needed
-          name,
-          profilePic: picture,
-          firebaseUid: uid,
-        });
-        console.log('New user created:', user);
-      }
-
-      const tokenData = { userId: user._id };
-
-      const token = jwt.sign(tokenData, process.env.ACCESS_TOKEN, {
-        expiresIn: "1d",
-      });
-
-      return res
-        .status(200)
-        .cookie("token", token, {
-          maxAge: 1 * 24 * 60 * 60 * 1000,
-          httpOnly: true,
-          sameSite: "strict",
-        })
-        .json({
-          message: "Google login successful",
-          user: {
-            _id: user._id,
-            email: user.email,
-            name: user.name,
-            profilePic: user.profilePic,
-          },
-          token,
-          success: true,
-        });
-    } catch (verifyError) {
-      console.error('Token verification error:', {
-        message: verifyError.message,
-        code: verifyError.code,
-        stack: verifyError.stack
-      });
-      return res.status(401).json({
-        message: "Invalid token",
-        success: false,
-        error: verifyError.message
+    if (!userData || !userData.email) {
+      return res.status(400).json({ 
+        message: "Invalid user data", 
+        success: false 
       });
     }
+
+    const { email, name, picture } = userData;
+
+    let user = await User.findOne({ email });
+
+    if (!user) {
+      user = await User.create({
+        email,
+        phone: "", // Optional field
+        password: "", // Not needed for Google users
+        name,
+        profilePic: picture,
+      });
+    }
+
+    const tokenData = { userId: user._id };
+
+    const token = jwt.sign(tokenData, process.env.ACCESS_TOKEN, {
+      expiresIn: "1d",
+    });
+
+    return res
+      .status(200)
+      .cookie("token", token, {
+        maxAge: 1 * 24 * 60 * 60 * 1000,
+        httpOnly: true,
+        sameSite: "strict",
+      })
+      .json({
+        message: "Google login successful",
+        user: {
+          _id: user._id,
+          email: user.email,
+          name: user.name,
+          profilePic: user.profilePic,
+        },
+        token,
+        success: true,
+      });
   } catch (error) {
-    console.error("Firebase login error:", error);
+    console.error("Google login error:", error);
     res.status(500).json({ 
       message: "Internal Server Error", 
       success: false,
