@@ -6,52 +6,63 @@ import { auth, firebaseAuth } from "../config/firebase.js";
 
 export const signup = async (req, res) => {
   try {
-    const { email, phone, password} = req.body;
-    console.log(req.body);
-    if ( !email || !phone || !password ) {
+    const { email, phone, password, role } = req.body;
+    console.log('Signup attempt for email:', email);
+    
+    if (!email || !phone || !password) {
       return res.status(400).json({
         message: "Something is missing",
         success: false,
       });
     }
+
     const user = await User.findOne({ email });
     if (user) {
+      console.log('User already exists:', email);
       return res.status(401).json({
         message: "User already exist with the same email",
         success: false,
       });
     }
+
+    console.log('Creating new user with role:', role);
     const hashedPassword = await bcrypt.hash(password, 10);
+    console.log('Password hashed successfully');
 
-    
-
-    
     const createdUser = await User.create({
       email,
       phone,
-      password: hashedPassword
+      password: hashedPassword,
+      role: role || 'user'
     });
 
+    console.log('User created successfully:', createdUser.email);
 
     return res.status(200).json({
       message: "User created successfully",
       success: true,
+      user: {
+        _id: createdUser._id,
+        email: createdUser.email,
+        role: createdUser.role
+      }
     });
   } catch (error) {
-    console.log(error);
+    console.error('Signup error:', error);
+    return res.status(500).json({
+      message: "Error creating user",
+      success: false,
+      error: error.message
+    });
   }
 };
-
-
-
-
-
-
-
 
 export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
+    
+    console.log('Login attempt for email:', email);
+    console.log('Provided password:', password);
     
     // Validate input
     if (!email || !password) {
@@ -65,11 +76,18 @@ export const login = async (req, res) => {
     const user = await User.findOne({ email }).select('+password');
     
     if (!user) {
+      console.log('User not found for email:', email);
       return res.status(400).json({
         message: "User not found",
         success: false,
       });
     }
+
+    console.log('User found:', {
+      email: user.email,
+      hasPassword: !!user.password,
+      storedPasswordHash: user.password
+    });
 
     // Check if user has a password (for Google users who haven't set a password)
     if (!user.password) {
@@ -81,6 +99,11 @@ export const login = async (req, res) => {
 
     // Compare passwords
     const isPasswordMatch = await bcrypt.compare(password, user.password);
+    console.log('Password comparison details:', {
+      providedPassword: password,
+      storedHash: user.password,
+      matchResult: isPasswordMatch
+    });
     
     if (!isPasswordMatch) {
       return res.status(401).json({
@@ -92,6 +115,7 @@ export const login = async (req, res) => {
     // Generate token
     const tokenData = {
       userId: user._id,
+      role: user.role
     };
 
     const token = jwt.sign(tokenData, process.env.ACCESS_TOKEN, {
@@ -105,21 +129,15 @@ export const login = async (req, res) => {
       phone: user.phone,
       name: user.name,
       profilePic: user.profilePic,
+      role: user.role
     };
 
-    return res
-      .status(200)
-      .cookie("token", token, {
-        maxAge: 1 * 24 * 60 * 60 * 1000,
-        httpOnly: true,
-        sameSite: "strict",
-      })
-      .json({
-        message: "Login successful",
-        user: userData,
-        token,
-        success: true,
-      });
+    return res.status(200).json({
+      message: "Login successful",
+      success: true,
+      user: userData,
+      token
+    });
   } catch (error) {
     console.error('Login error:', error);
     return res.status(500).json({
@@ -130,23 +148,24 @@ export const login = async (req, res) => {
   }
 };
 
-
-
-
-
 export const logout = async (req, res) => {
   try {
-    return res.status(200).cookie("token", "", { maxAge: 0 }).json({
+    // Clear the token from the client
+    res.clearCookie('token');
+    
+    return res.status(200).json({
       message: "Logged out successfully",
-      success: true,
+      success: true
     });
   } catch (error) {
-    console.log(error);
+    console.error('Logout error:', error);
+    return res.status(500).json({
+      message: "Error during logout",
+      success: false,
+      error: error.message
+    });
   }
 };
-
-
-
 
 export const googleLogin = async (req, res) => {
   try {
@@ -179,10 +198,14 @@ export const googleLogin = async (req, res) => {
         password: "", // Not needed for Google users
         name,
         profilePic: picture,
+        role: 'user' // Default role for Google sign-in
       });
     }
 
-    const tokenData = { userId: user._id };
+    const tokenData = { 
+      userId: user._id,
+      role: user.role
+    };
 
     const token = jwt.sign(tokenData, process.env.ACCESS_TOKEN, {
       expiresIn: "1d",
@@ -202,6 +225,7 @@ export const googleLogin = async (req, res) => {
           email: user.email,
           name: user.name,
           profilePic: user.profilePic,
+          role: user.role
         },
         token,
         success: true,
@@ -226,7 +250,13 @@ export const forgotPassword = async (req, res) => {
       });
     }
 
-    const user = await User.findOne({ email });
+    // Convert email to lowercase for case-insensitive search
+    const normalizedEmail = email.toLowerCase().trim();
+    
+    const user = await User.findOne({ 
+      email: { $regex: new RegExp(`^${normalizedEmail}$`, 'i') }
+    });
+
     if (!user) {
       return res.status(404).json({
         message: "User not found",
@@ -252,7 +282,7 @@ export const forgotPassword = async (req, res) => {
 
     const mailOptions = {
       from: process.env.EMAIL_USER,
-      to: email,
+      to: user.email, // Use the email from the database to ensure correct case
       subject: 'Password Reset Request',
       html: `
         <h2>Password Reset Request</h2>

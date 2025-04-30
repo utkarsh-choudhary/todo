@@ -26,6 +26,11 @@ const userSchema = new mongoose.Schema(
       type: String,
       required: false, // profile image URL from Google
     },
+    role: {
+      type: String,
+      enum: ['admin', 'user'],
+      default: 'user',
+    },
     firebaseUid: {
       type: String,
       required: false, // Firebase unique UID
